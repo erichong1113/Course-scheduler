@@ -5,9 +5,6 @@ from datetime import datetime, time
 from dataclasses import dataclass
 from typing import List, Dict, Tuple, Optional, Set
 
-# =========================================================
-# Pretty UI
-# =========================================================
 st.set_page_config(page_title="CourseFit Roadmap Planner", layout="wide")
 
 st.markdown("""
@@ -129,9 +126,7 @@ def parse_quarter_key(q: str) -> Tuple[int,int,str]:
     term_rank = TERM_ORDER.get(term, 99)
     return (year, term_rank, q)
 
-# =========================================================
 # Prereqs
-# =========================================================
 def parse_prereqs(prereq_str: str, prereq_type: Optional[str]) -> List[List[str]]:
     if not isinstance(prereq_str, str) or not prereq_str.strip() or prereq_str.strip().lower() == "nan":
         return []
@@ -157,9 +152,7 @@ def prereq_satisfied(groups: List[List[str]], completed: Set[str]) -> Tuple[bool
                 missing.append(" OR ".join(g))
     return (len(missing) == 0), missing
 
-# =========================================================
 # Metrics + scoring
-# =========================================================
 def compute_unique_days_on_campus(blocks) -> float:
     days = set()
     for b in blocks:
@@ -210,9 +203,7 @@ def weighted_suitability(trips, time_min, buildings, ctec, w_trips, w_time, w_wa
     penalty = (w_trips*p_trips + w_time*p_time + w_walk*p_walk + w_ctec*p_ctec) / den
     return float((1.0 - penalty) * 100.0)
 
-# =========================================================
 # Data loading
-# =========================================================
 @st.cache_data(show_spinner=False)
 def load_data(path: str):
     sched = pd.read_excel(path, sheet_name="Course_Scheduling")
@@ -249,9 +240,8 @@ def get_ctec(ctec: pd.DataFrame, course_id: str, instructor: str) -> Optional[fl
             return float(df2["overall_teaching"].mean())
     return float(df["overall_teaching"].mean())
 
-# =========================================================
+
 # Scheduling primitives
-# =========================================================
 def section_to_block(r: pd.Series) -> Dict:
     return {
         "course_id": str(r.get("course_id","")).strip(),
@@ -292,9 +282,7 @@ def completed_set(students: pd.DataFrame, student_name: str) -> Set[str]:
     s = students[(students["student_name"] == student_name) & (students["course_status"] == "completed")]
     return set(s["course_id"].tolist())
 
-# =========================================================
 # Roadmap planning
-# =========================================================
 @dataclass
 class PlannedSection:
     course_id: str
@@ -369,6 +357,30 @@ def greedy_fill_one_quarter(course_rows_by_id: Dict[str, pd.DataFrame],
         if not (enforce_no_conflict and conf):
             chosen_blocks.append(seed)
             used_courses.add(seed["course_id"])
+
+            seed_rows = course_rows_by_id.get(seed["course_id"])
+            if seed_rows is not None:
+                match = seed_rows[
+                    (seed_rows["course_id"].astype(str).str.strip() == seed["course_id"]) &
+                    (seed_rows["section"].astype(str).str.strip() == seed["section"])
+                ]
+                if not match.empty:
+                    r = match.iloc[0]
+                    chosen_sections.append(PlannedSection(
+                        course_id=seed["course_id"],
+                        title=str(r.get("title","")).strip(),
+                        section=str(r.get("section","")).strip(),
+                        quarter=str(r.get("quarter","")).strip(),
+                        days=str(r.get("days","")).strip(),
+                        start_time=str(r.get("start_time","")).strip(),
+                        end_time=str(r.get("end_time","")).strip(),
+                        modality=str(r.get("modality","")).strip(),
+                        instructor=str(r.get("instructor","")).strip(),
+                        location=str(r.get("location","")).strip(),
+                        building=str(r.get("building_name","")).strip(),
+                        ctec=r.get("_ctec", None),
+                        conflicts=", ".join(conf) if conf else ""
+                    ))
 
     while len(chosen_blocks) < target_n:
         best_pick = None
@@ -447,7 +459,7 @@ def plan_roadmap(sched: pd.DataFrame, students: pd.DataFrame, ctec: pd.DataFrame
         return []
 
     completed0 = completed_set(students, student_name)
-    beam = [([], set(completed0), 0.0)]  # plans_so_far, completed_by_time, total_score
+    beam = [([], set(completed0), 0.0)]  
 
     for q in q_list:
         new_beam = []
@@ -455,8 +467,6 @@ def plan_roadmap(sched: pd.DataFrame, students: pd.DataFrame, ctec: pd.DataFrame
             fixed = build_fixed_blocks(students, sched, student_name, q)
 
             cand = build_candidate_sections(sched, ctec, q, completed0)
-
-            # group by course_id; filter by prereqs
             course_rows_by_id = {}
             for cid, rows in cand.groupby("course_id"):
                 ok, _missing = course_prereq_ok(rows, completed_by_time)
@@ -469,7 +479,6 @@ def plan_roadmap(sched: pd.DataFrame, students: pd.DataFrame, ctec: pd.DataFrame
                 new_beam.append((plans_so_far + [qplan], set(completed_by_time), total_score + q_score))
                 continue
 
-            # seeds: pick good-looking sections to diversify
             seed_blocks = []
             for cid, rows in course_rows_by_id.items():
                 rr = rows.copy()
@@ -499,7 +508,6 @@ def plan_roadmap(sched: pd.DataFrame, students: pd.DataFrame, ctec: pd.DataFrame
         new_beam.sort(key=lambda x: x[2], reverse=True)
         beam = new_beam[:beam_width]
 
-    # to roadmaps, dedupe by signature
     roadmaps: List[Roadmap] = []
     seen = set()
     for plans, _, total in beam:
@@ -512,9 +520,7 @@ def plan_roadmap(sched: pd.DataFrame, students: pd.DataFrame, ctec: pd.DataFrame
     roadmaps.sort(key=lambda r: r.total_score, reverse=True)
     return roadmaps[:top_k_outputs]
 
-# =========================================================
 # UI
-# =========================================================
 st.markdown("""
 <div class="hero">
   <h1>CourseFit Roadmap Planner</h1>
